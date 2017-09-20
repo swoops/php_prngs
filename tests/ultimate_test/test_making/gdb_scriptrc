@@ -1,0 +1,171 @@
+set disassembly-flavor intel
+set logging file ./log_file
+
+set $pid = getpid()
+set $s1_hit = 0
+set $lcg_hit = 0
+
+
+#########################################################
+####        seeding php_combined_lcg
+#########################################################
+
+# first gettimeofday call want to be fast
+b *php_combined_lcg+341
+commands
+silent
+set $usec = $rax
+set $lcg_sec1 = (* (int32_t *) $rsp)
+c
+end
+
+b *php_combined_lcg+283
+commands
+silent
+set $lcg_sec2 = (* (int32_t *) $rsp)
+set $usec2 = $eax
+c
+end
+
+#########################################################
+####       php_combined_lcg stdrd
+#########################################################
+b *php_combined_lcg+48
+commands
+silent
+if $s1_hit == 0
+set $s2 = $ebx
+set $s1 = $esi
+end
+set $s1_hit += 1
+c
+end
+
+b *php_combined_lcg+176
+commands
+silent
+if $lcg_hit == 0
+  set $lcg_ret1 = $eax
+  set $lcg = $eax * 4.656613e-9
+  set $delta = $usec2 - $usec
+else
+  set $lcg_ret2 = $eax
+end
+set $lcg_hit += 1
+c
+# looks good here
+end
+
+
+#########################################################
+####     generate_seed debugging
+#########################################################
+# b *zif_mt_rand+199
+# commands
+# silent
+# printf " == rax := time(NULL)  == \n"
+# printf "old: 0x%x \n", $rax
+# set $rax = 0x58efbd02
+# printf "new: 0x%x \n", $rax
+# c
+# end
+# 
+# b *zif_mt_rand+207
+# commands
+# silent
+# printf " == rax := getpid()  == \n"
+# printf "old: 0x%x %d\n", $rax, $rax
+# set $rax = 0x000071b8
+# printf "new: 0x%x \n", $rax
+# c
+# end
+# 
+# 
+# b *zif_mt_rand+226
+
+
+#########################################################
+####     mt_rand
+#########################################################
+b *zif_mt_rand+235
+commands
+silent
+set $left = $edi
+set $right = $edx
+c
+end
+
+b *zif_mt_rand+226
+commands
+silent
+# left = edi * r12
+printf "++++++++++++++++++++++++++++++++=\n"
+printf "left =? %d * %d\n", $edi, $r12d
+c
+end
+
+b php_mt_srand
+commands
+silent
+set $mt_seed = $edi
+printf "mt_seed: %u\n", $mt_seed
+c
+end
+
+b php_mt_srand
+commands
+silent
+set $mt_seed = $edi
+printf "mt_seed: %u\n", $mt_seed
+c
+end
+
+# return
+b *zif_mt_rand+249
+commands
+silent
+set $rand = $eax
+continue
+end
+
+#########################################################
+####       uniqid
+#########################################################
+b *zif_uniqid+113
+commands
+silent
+set $usec3 = $r9
+c
+end
+
+b *zif_uniqid+186
+commands
+silent
+py import time
+py gdb.execute("set $end_time =  %d" % int(time.time()) )
+printf "end_time:         %d\n", $end_time
+set logging on
+printf "================================================================\n"
+printf "pid:          %d\n", $pid
+printf "mt_rand:      0x%x\n", $rand
+printf "uniqid:       %s\n", $rbx
+printf "usec:         %d\n", $usec
+printf "usec2:        %d\n", $usec2
+printf "delta?:       %d\n", $delta
+printf "lcg_sec1:     %d\n", $lcg_sec1
+printf "lcg_sec2:     %d\n", $lcg_sec2
+printf "s1:           %d\n", $s1
+printf "s2:           %d\n", $s2
+printf "lcg_int:      %d\n", $lcg_ret1
+printf "lcg1():       %.8f\n", $lcg_ret1 * 4.656613e-9
+printf "lcg2():       %.8f\n", $lcg_ret2 * 4.656613e-9
+if $lcg_sec1 != $end_time
+  printf "time does not match!!!\n"
+end
+printf "ultimate_test -F -R %d -L %d -w %ld -f %s -a %u -r %u -q %d -s %d -l %.8f -p %d -t %ld -u %ld -v %ld -g %ld\n", $right, $left, $usec3, $rbx, $mt_seed, $rand,  $s1, $s2, $lcg, $pid, $lcg_sec1, $usec, $usec2, $delta
+printf "++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n"
+set logging off
+quit
+end
+
+continue

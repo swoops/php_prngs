@@ -1,0 +1,86 @@
+b *php_combined_lcg+336
+commands
+silent
+printf "  // seeding\n"
+printf "  s.sec= %u;\n  s.usec= %u;\n", *((unsigned int *) $rsp), *((unsigned int *) ($rsp+8))
+set $sec = *((unsigned int *) $rsp)
+set $usec = *((unsigned int *) ($rsp+8))
+continue
+end
+
+b php_combined_lcg
+commands
+silent
+printf "// [*] php_combined_lcg\n"
+continue
+end
+
+b *php_combined_lcg+345
+commands
+silent
+printf "  if ( s.usec << 11 != %u )\n    printf(\"shl 1 failed\\n\");\n", $rax
+continue
+end
+
+b *php_combined_lcg+348
+commands
+silent
+printf "  s1= %u;\n", $eax
+printf "  if ( ( s.sec ^ ( s.usec << 11 ) ) != %u )\n    printf(\"s1 failed\\n\");\n", $rax
+set $s1 = $eax
+continue
+end
+
+b *php_combined_lcg+256
+commands
+silent
+printf "  s.pid= %u;\n", $rax
+set $pid = $rax
+continue
+end
+
+b *php_combined_lcg+276
+commands
+silent
+printf "  // sec2:  %u ;\n  s.delta = %u - s.usec;\n", *((unsigned int *) $rsp), *((unsigned int *) ($rsp+8))
+set $delta = *((unsigned int *) ($rsp+8)) - $usec
+continue
+end
+
+b *php_combined_lcg+287
+commands
+silent
+printf "  if ( ( s.usec + s.delta ) << 11 != %u )\n    printf(\"shl 2 failed\\n\");\n", $eax
+continue
+end
+
+b *php_combined_lcg+289
+commands
+silent
+printf "  s2 = %u;\n", $ebx
+printf "  if (  ( s.pid ^ ( ( s.usec + s.delta ) << 11 ) ) != %u )\n    printf(\"s2 failed\\n\");\n", $ebx
+printf "  // finished seeding\n"
+set $s2 = $ebx
+continue
+end
+
+# just before return, before value turned to double
+b *php_combined_lcg+175
+commands
+silent
+printf "  printf(\"int: %u\\n\");\n", $eax
+printf "  double val = %.8f;\n", ($eax * 4.656613e-10) * 10
+continue
+end
+
+# b *php_combined_lcg+213
+# commands
+# silent
+# printf "//-- about to return --\n"
+# p $xmm0
+# continue
+# end
+
+run ../test.php
+printf "running test sec=%u usec=%u pid=%u delta=%u s1=%u s2=%u !\n", $sec, $usec, $pid, $delta, $s1, $s2
+eval "!./test %u %u %u %u %u %u ", $sec, $usec, $pid, $delta, $s1, $s2
